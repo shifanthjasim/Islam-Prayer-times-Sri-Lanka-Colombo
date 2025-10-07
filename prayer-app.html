@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prayer Times App</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #121212;
+            color: #E5E7EB;
+        }
+        .prayer-card {
+            background-color: #1E1E1E;
+            border: 1px solid #374151;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        }
+        .prayer-time-item {
+            background-color: #282828;
+            border-left: 4px solid transparent;
+            transition: all 0.3s ease;
+        }
+        .prayer-time-item.active {
+            background-color: #3a3a3a;
+            border-left-color: #F59E0B; /* Amber accent */
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid #F59E0B; /* Amber top border */
+            width: 48px;
+            height: 48px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="antialiased flex items-center justify-center min-h-screen p-4">
+
+    <div id="app-container" class="prayer-card rounded-2xl p-6 sm:p-8 max-w-md w-full">
+
+        <!-- Loading State -->
+        <div id="loading-state" class="text-center">
+            <div class="spinner mx-auto"></div>
+            <p class="text-gray-400 mt-4">Fetching prayer times...</p>
+            <p id="loading-message" class="text-sm text-gray-500 mt-2">Please allow location access for accurate timings.</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" class="hidden text-center">
+            <h3 class="text-xl font-bold text-red-500">Access Denied</h3>
+            <p class="text-gray-400 mt-2">Location access is required to calculate prayer times. Please enable it in your browser settings and refresh the page.</p>
+            <p class="text-gray-500 mt-4 text-sm">Alternatively, you can manually enter your location below.</p>
+             <div class="mt-4">
+                <input type="text" id="city-input" placeholder="Enter City" class="w-full p-2 rounded bg-gray-700 border border-gray-600 focus:outline-none focus:border-amber-500">
+                <input type="text" id="country-input" placeholder="Enter Country" class="w-full p-2 mt-2 rounded bg-gray-700 border border-gray-600 focus:outline-none focus:border-amber-500">
+                <button onclick="getPrayerTimesByCity()" class="w-full mt-4 bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 px-4 rounded-lg transition">Get Times</button>
+            </div>
+        </div>
+
+        <!-- Content State -->
+        <div id="content-state" class="hidden">
+            <!-- Header: Location and Date -->
+            <div class="text-center border-b border-gray-700 pb-4 mb-4">
+                <h2 id="location" class="text-2xl font-bold text-amber-500"></h2>
+                <p id="date" class="text-gray-400"></p>
+            </div>
+
+            <!-- Next Prayer Countdown -->
+            <div class="text-center my-6">
+                <p class="text-sm uppercase tracking-wider text-gray-500">Next Prayer</p>
+                <h3 id="next-prayer-name" class="text-4xl font-bold text-gray-50"></h3>
+                <p id="next-prayer-countdown" class="text-2xl text-amber-400 font-mono"></p>
+            </div>
+
+            <!-- Prayer Times List -->
+            <div id="prayer-times-list" class="space-y-3">
+                <!-- Items will be injected by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const loadingState = document.getElementById('loading-state');
+        const errorState = document.getElementById('error-state');
+        const contentState = document.getElementById('content-state');
+        const locationEl = document.getElementById('location');
+        const dateEl = document.getElementById('date');
+        const nextPrayerNameEl = document.getElementById('next-prayer-name');
+        const nextPrayerCountdownEl = document.getElementById('next-prayer-countdown');
+        const prayerTimesListEl = document.getElementById('prayer-times-list');
+        const loadingMessageEl = document.getElementById('loading-message');
+
+        // --- State ---
+        let prayerTimes = {};
+        let countdownInterval;
+
+        // --- Functions ---
+
+        /**
+         * Fetches prayer times from the Aladhan API.
+         * @param {number} latitude
+         * @param {number} longitude
+         */
+        async function fetchPrayerTimes(latitude, longitude) {
+            try {
+                const date = new Date();
+                const dateString = `${date.getDate()}-${date.getMonth() + 1}-${date.getFullYear()}`;
+                const api_url = `https://api.aladhan.com/v1/timings/${dateString}?latitude=${latitude}&longitude=${longitude}&method=2`;
+                
+                const response = await fetch(api_url);
+                if (!response.ok) throw new Error('Failed to fetch prayer times.');
+                
+                const data = await response.json();
+                prayerTimes = data.data.timings;
+                
+                displayPrayerTimes(data.data.meta.timezone);
+                startCountdown();
+                
+                loadingState.classList.add('hidden');
+                contentState.classList.remove('hidden');
+                errorState.classList.add('hidden');
+
+            } catch (error) {
+                console.error("API Error:", error);
+                loadingMessageEl.textContent = "Could not fetch data. Please try again.";
+            }
+        }
+
+        async function getPrayerTimesByCity() {
+            const city = document.getElementById('city-input').value;
+            const country = document.getElementById('country-input').value;
+            if (!city || !country) {
+                alert("Please enter both city and country.");
+                return;
+            }
+            try {
+                const date = new Date();
+                const dateString = `${date.getDate()}-${date.getMonth() + 1}-${date.getFullYear()}`;
+                const api_url = `https://api.aladhan.com/v1/timingsByCity/${dateString}?city=${city}&country=${country}&method=2`;
+                
+                const response = await fetch(api_url);
+                if (!response.ok) throw new Error('Failed to fetch prayer times for the specified city.');
+
+                const data = await response.json();
+                prayerTimes = data.data.timings;
+
+                displayPrayerTimes(data.data.meta.timezone);
+                startCountdown();
+
+                loadingState.classList.add('hidden');
+                contentState.classList.remove('hidden');
+                errorState.classList.add('hidden');
+
+            } catch (error) {
+                console.error("API Error:", error);
+                alert("Could not find the city. Please check the spelling and try again.");
+            }
+        }
+
+        /**
+         * Displays the fetched prayer times in the UI.
+         * @param {string} timezone
+         */
+        function displayPrayerTimes(timezone) {
+            locationEl.textContent = timezone.replace(/_/g, " ");
+            dateEl.textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+            const prayerOrder = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+            prayerTimesListEl.innerHTML = ''; // Clear previous list
+
+            prayerOrder.forEach(prayer => {
+                const time = prayerTimes[prayer];
+                const item = document.createElement('div');
+                item.className = 'prayer-time-item flex justify-between items-center p-4 rounded-lg';
+                item.id = `prayer-${prayer}`;
+                item.innerHTML = `
+                    <span class="text-lg font-semibold">${prayer}</span>
+                    <span class="text-xl font-mono">${time}</span>
+                `;
+                prayerTimesListEl.appendChild(item);
+            });
+        }
+
+        /**
+         * Finds the next prayer and starts the countdown timer.
+         */
+        function startCountdown() {
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            countdownInterval = setInterval(() => {
+                const now = new Date();
+                const prayerOrder = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+                let nextPrayer = null;
+                let nextPrayerTime = null;
+
+                // Find the next prayer for today
+                for (const prayer of prayerOrder) {
+                    const [hours, minutes] = prayerTimes[prayer].split(':');
+                    const prayerDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+                    
+                    if (prayerDate > now) {
+                        nextPrayer = prayer;
+                        nextPrayerTime = prayerDate;
+                        break;
+                    }
+                }
+
+                // If all prayers for today are done, the next prayer is Fajr of the next day
+                if (!nextPrayer) {
+                    nextPrayer = 'Fajr';
+                    const [hours, minutes] = prayerTimes.Fajr.split(':');
+                    nextPrayerTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hours, minutes);
+                }
+
+                // Update UI
+                nextPrayerNameEl.textContent = nextPrayer;
+                const diff = nextPrayerTime - now;
+                const hours = Math.floor(diff / (1000 * 60 * 60)).toString().padStart(2, '0');
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)).toString().padStart(2, '0');
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000).toString().padStart(2, '0');
+                nextPrayerCountdownEl.textContent = `${hours}:${minutes}:${seconds}`;
+
+                // Highlight the active prayer
+                document.querySelectorAll('.prayer-time-item').forEach(el => el.classList.remove('active'));
+                document.getElementById(`prayer-${nextPrayer}`).classList.add('active');
+
+            }, 1000);
+        }
+
+        // --- Initializer ---
+        window.addEventListener('load', () => {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        fetchPrayerTimes(position.coords.latitude, position.coords.longitude);
+                    },
+                    (error) => {
+                        console.error("Geolocation Error:", error);
+                        loadingState.classList.add('hidden');
+                        errorState.classList.remove('hidden');
+                    }
+                );
+            } else {
+                loadingMessageEl.textContent = "Geolocation is not supported by your browser.";
+                loadingState.classList.add('hidden');
+                errorState.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
